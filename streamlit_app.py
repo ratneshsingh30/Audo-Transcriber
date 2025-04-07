@@ -1,4 +1,5 @@
-# Streamlit Web App for Agentic AI Consulting Demo (MP3 version with fallback)
+
+# Streamlit Web App for Agentic AI Consulting Demo (no ffmpeg dependency)
 import streamlit as st
 import os
 import subprocess
@@ -62,31 +63,26 @@ def visualize_stakeholders(data):
     ax.set_title("Stakeholder Mentions")
     return fig
 
-def download_audio(url, output_file="podcast.mp3"):
-    """Download audio with error handling"""
+def download_audio(url, output_file="podcast_audio.webm"):
     try:
-        # Check if yt-dlp is installed
         if shutil.which("yt-dlp") is None:
             st.error("yt-dlp is not installed. Please install it with: pip install yt-dlp")
             return False
-            
-        # Run the command and capture output
+
         result = subprocess.run(
-            ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_file, url],
-            capture_output=True, 
+            ["yt-dlp", "-f", "bestaudio", "-o", output_file, url],
+            capture_output=True,
             text=True
         )
-        
-        # Check if command was successful
+
         if result.returncode != 0:
             st.error(f"Failed to download audio: {result.stderr}")
             return False
-            
-        # Verify file exists and has size
+
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
             st.error("Downloaded file is empty or does not exist.")
             return False
-            
+
         return True
     except Exception as e:
         st.error(f"Error downloading audio: {str(e)}")
@@ -101,20 +97,18 @@ resume_file = st.file_uploader("Upload your Resume (.docx)", type="docx")
 linkedin_url = st.text_input("Or paste your LinkedIn URL")
 
 if st.button("Generate Report"):
+    audio_file = "podcast_audio.webm"
+    if os.path.exists(audio_file):
+        os.remove(audio_file)
+
     with st.spinner("Downloading audio..."):
-        # Clean up any previous files
-        if os.path.exists("podcast.mp3"):
-            os.remove("podcast.mp3")
-            
-        # Download the audio
-        download_success = download_audio(podcast_url)
+        download_success = download_audio(podcast_url, audio_file)
         if not download_success:
-            st.error("Failed to download or process audio. Please check the URL and try again.")
             st.stop()
-    
+
     with st.spinner("Transcribing audio..."):
         try:
-            audio = AudioSegment.from_mp3("podcast.mp3")
+            audio = AudioSegment.from_file(audio_file)
             audio = audio.set_channels(1).set_frame_rate(16000)
             samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
             waveform = torch.tensor(samples).unsqueeze(0)
