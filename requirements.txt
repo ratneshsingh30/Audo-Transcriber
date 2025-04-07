@@ -9,4 +9,3 @@ python-docx
 beautifulsoup4
 requests
 pydub
-ffmpeg-python
