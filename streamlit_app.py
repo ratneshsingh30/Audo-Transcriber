@@ -1,22 +1,22 @@
 
-# Streamlit Web App for Agentic AI Consulting Demo (no ffmpeg dependency)
+# Streamlit App: Podcast Insight Generator using OpenAI Whisper API
 import streamlit as st
 import os
-import subprocess
+import openai
+import tempfile
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
-import torch
-import requests
-from bs4 import BeautifulSoup
+from transformers import pipeline
 from docx import Document
 from collections import Counter
-from pydub import AudioSegment
-import numpy as np
-import shutil
+import requests
+from bs4 import BeautifulSoup
 
-# --- Helper Functions ---
+# Set your API key from environment variable or input
+openai.api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else st.text_input("Enter your OpenAI API Key", type="password")
+
+# Helper Functions
 def extract_profile_from_resume(file):
     doc = Document(file)
     text = " ".join([para.text for para in doc.paragraphs])
@@ -42,9 +42,14 @@ def extract_profile_from_linkedin(url):
     except:
         return {"name": "User", "background": "Professional", "interests": ["AI"]}
 
-def summarize_transcript(transcript):
+def transcribe_audio(file_path):
+    with open(file_path, "rb") as f:
+        transcript = openai.Audio.transcribe("whisper-1", f)
+        return transcript["text"]
+
+def summarize_transcript(text):
     summarizer = pipeline("summarization")
-    return summarizer(transcript[:1000], max_length=130, min_length=30, do_sample=False)[0]['summary_text']
+    return summarizer(text[:1000], max_length=130, min_length=30, do_sample=False)[0]['summary_text']
 
 def generate_insights(summary, profile):
     return {
@@ -63,86 +68,53 @@ def visualize_stakeholders(data):
     ax.set_title("Stakeholder Mentions")
     return fig
 
-def download_audio(url, output_file="podcast_audio.webm"):
-    try:
-        if shutil.which("yt-dlp") is None:
-            st.error("yt-dlp is not installed. Please install it with: pip install yt-dlp")
-            return False
+# Streamlit UI
+st.set_page_config(page_title="OpenAI Whisper AI Consulting Demo")
+st.title("🎧 Podcast Insight Generator (via OpenAI Whisper API)")
 
-        result = subprocess.run(
-            ["yt-dlp", "-f", "bestaudio", "-o", output_file, url],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
-            st.error(f"Failed to download audio: {result.stderr}")
-            return False
-
-        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-            st.error("Downloaded file is empty or does not exist.")
-            return False
-
-        return True
-    except Exception as e:
-        st.error(f"Error downloading audio: {str(e)}")
-        return False
-
-# --- Streamlit UI ---
-st.set_page_config(page_title="Agentic AI Consulting Demo", layout="centered")
-st.title("🎧 AI-Powered Podcast Insight Generator")
-
-podcast_url = st.text_input("Enter Podcast URL", "https://shows.acast.com/design-talk/episodes/software-architecture")
+audio_url = st.text_input("Paste podcast audio URL (MP3)", "")
 resume_file = st.file_uploader("Upload your Resume (.docx)", type="docx")
 linkedin_url = st.text_input("Or paste your LinkedIn URL")
 
 if st.button("Generate Report"):
-    audio_file = "podcast_audio.webm"
-    if os.path.exists(audio_file):
-        os.remove(audio_file)
+    if not audio_url:
+        st.error("Please enter a podcast MP3 URL.")
+        st.stop()
 
-    with st.spinner("Downloading audio..."):
-        download_success = download_audio(podcast_url, audio_file)
-        if not download_success:
+    with st.spinner("Downloading and transcribing audio..."):
+        response = requests.get(audio_url)
+        if response.status_code != 200:
+            st.error("Failed to fetch audio file.")
             st.stop()
 
-    with st.spinner("Transcribing audio..."):
-        try:
-            audio = AudioSegment.from_file(audio_file)
-            audio = audio.set_channels(1).set_frame_rate(16000)
-            samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
-            waveform = torch.tensor(samples).unsqueeze(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+            tmp_file.write(response.content)
+            tmp_path = tmp_file.name
 
-            processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-            model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
-            input_features = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt").input_features
-            predicted_ids = model.generate(input_features)
-            transcript = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+        try:
+            transcript = transcribe_audio(tmp_path)
         except Exception as e:
-            st.error(f"Error during transcription: {str(e)}")
+            st.error(f"OpenAI Whisper API failed: {str(e)}")
             st.stop()
 
     with st.spinner("Summarizing and generating insights..."):
-        try:
-            summary = summarize_transcript(transcript)
-            profile = extract_profile_from_resume(resume_file) if resume_file else extract_profile_from_linkedin(linkedin_url)
-            insights = generate_insights(summary, profile)
+        summary = summarize_transcript(transcript)
+        profile = extract_profile_from_resume(resume_file) if resume_file else extract_profile_from_linkedin(linkedin_url)
+        insights = generate_insights(summary, profile)
 
-            st.subheader("🔍 Summary")
-            st.write(insights['summary'])
+        st.subheader("🔍 Summary")
+        st.write(insights['summary'])
 
-            st.subheader("📌 Business Needs")
-            st.write("\n".join([f"- {x}" for x in insights['business_needs']]))
+        st.subheader("📌 Business Needs")
+        st.write("\n".join([f"- {x}" for x in insights['business_needs']]))
 
-            st.subheader("👥 Stakeholder Focus")
-            st.pyplot(visualize_stakeholders(insights['stakeholder_focus']))
+        st.subheader("👥 Stakeholder Focus")
+        st.pyplot(visualize_stakeholders(insights['stakeholder_focus']))
 
-            st.subheader("🎯 Goals")
-            st.write(insights['goals'])
+        st.subheader("🎯 Goals")
+        st.write(insights['goals'])
 
-            st.subheader("💬 Personal Reflection")
-            st.write(insights['personal_reflection'])
+        st.subheader("💬 Personal Reflection")
+        st.write(insights['personal_reflection'])
 
-            st.success("✅ Insight report generated!")
-        except Exception as e:
-            st.error(f"Error generating insights: {str(e)}")
+        st.success("✅ Insight report generated!")
