@@ -8,6 +8,5 @@ pandas==2.1.0
 python-docx==0.8.11
 beautifulsoup4==4.12.2
 numpy==1.26.0
-accelerate
-requests
-pydub
+accelerate==0.22.0
+requests==2.31.0
