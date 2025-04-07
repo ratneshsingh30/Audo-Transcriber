@@ -12,7 +12,12 @@ from bs4 import BeautifulSoup
 from docx import Document
 from collections import Counter
 from pydub import AudioSegment
+from pydub.utils import which
 import numpy as np
+
+# Setup ffmpeg paths
+AudioSegment.converter = which("ffmpeg")
+AudioSegment.ffprobe = which("ffprobe")
 
 # --- Helper Functions ---
 def extract_profile_from_resume(file):
@@ -72,7 +77,12 @@ linkedin_url = st.text_input("Or paste your LinkedIn URL")
 if st.button("Generate Report"):
     with st.spinner("Downloading audio and transcribing..."):
         os.system(f"yt-dlp -x --audio-format mp3 -o podcast.mp3 {podcast_url}")
-        audio = AudioSegment.from_mp3("podcast.mp3")
+        try:
+            audio = AudioSegment.from_mp3("podcast.mp3")
+        except FileNotFoundError:
+            st.error("FFmpeg is not available in the environment. Please switch to .wav audio format or install ffmpeg.")
+            st.stop()
+
         audio = audio.set_channels(1).set_frame_rate(16000)
         samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
         waveform = torch.tensor(samples).unsqueeze(0)
