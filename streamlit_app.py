@@ -1,7 +1,7 @@
-
 # Streamlit Web App for Agentic AI Consulting Demo (MP3 version with fallback)
 import streamlit as st
 import os
+import subprocess
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,6 +13,7 @@ from docx import Document
 from collections import Counter
 from pydub import AudioSegment
 import numpy as np
+import shutil
 
 # --- Helper Functions ---
 def extract_profile_from_resume(file):
@@ -61,6 +62,36 @@ def visualize_stakeholders(data):
     ax.set_title("Stakeholder Mentions")
     return fig
 
+def download_audio(url, output_file="podcast.mp3"):
+    """Download audio with error handling"""
+    try:
+        # Check if yt-dlp is installed
+        if shutil.which("yt-dlp") is None:
+            st.error("yt-dlp is not installed. Please install it with: pip install yt-dlp")
+            return False
+            
+        # Run the command and capture output
+        result = subprocess.run(
+            ["yt-dlp", "-x", "--audio-format", "mp3", "-o", output_file, url],
+            capture_output=True, 
+            text=True
+        )
+        
+        # Check if command was successful
+        if result.returncode != 0:
+            st.error(f"Failed to download audio: {result.stderr}")
+            return False
+            
+        # Verify file exists and has size
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            st.error("Downloaded file is empty or does not exist.")
+            return False
+            
+        return True
+    except Exception as e:
+        st.error(f"Error downloading audio: {str(e)}")
+        return False
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Agentic AI Consulting Demo", layout="centered")
 st.title("🎧 AI-Powered Podcast Insight Generator")
@@ -70,37 +101,54 @@ resume_file = st.file_uploader("Upload your Resume (.docx)", type="docx")
 linkedin_url = st.text_input("Or paste your LinkedIn URL")
 
 if st.button("Generate Report"):
-    with st.spinner("Downloading audio and transcribing..."):
-        os.system(f"yt-dlp -x --audio-format mp3 -o podcast.mp3 {podcast_url}")
-        audio = AudioSegment.from_mp3("podcast.mp3")
-        audio = audio.set_channels(1).set_frame_rate(16000)
-        samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
-        waveform = torch.tensor(samples).unsqueeze(0)
+    with st.spinner("Downloading audio..."):
+        # Clean up any previous files
+        if os.path.exists("podcast.mp3"):
+            os.remove("podcast.mp3")
+            
+        # Download the audio
+        download_success = download_audio(podcast_url)
+        if not download_success:
+            st.error("Failed to download or process audio. Please check the URL and try again.")
+            st.stop()
+    
+    with st.spinner("Transcribing audio..."):
+        try:
+            audio = AudioSegment.from_mp3("podcast.mp3")
+            audio = audio.set_channels(1).set_frame_rate(16000)
+            samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
+            waveform = torch.tensor(samples).unsqueeze(0)
 
-        processor = WhisperProcessor.from_pretrained("openai/whisper-small")
-        model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
-        input_features = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt").input_features
-        predicted_ids = model.generate(input_features)
-        transcript = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+            processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+            model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+            input_features = processor(waveform.squeeze().numpy(), sampling_rate=16000, return_tensors="pt").input_features
+            predicted_ids = model.generate(input_features)
+            transcript = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+        except Exception as e:
+            st.error(f"Error during transcription: {str(e)}")
+            st.stop()
 
     with st.spinner("Summarizing and generating insights..."):
-        summary = summarize_transcript(transcript)
-        profile = extract_profile_from_resume(resume_file) if resume_file else extract_profile_from_linkedin(linkedin_url)
-        insights = generate_insights(summary, profile)
+        try:
+            summary = summarize_transcript(transcript)
+            profile = extract_profile_from_resume(resume_file) if resume_file else extract_profile_from_linkedin(linkedin_url)
+            insights = generate_insights(summary, profile)
 
-        st.subheader("🔍 Summary")
-        st.write(insights['summary'])
+            st.subheader("🔍 Summary")
+            st.write(insights['summary'])
 
-        st.subheader("📌 Business Needs")
-        st.write("\n".join([f"- {x}" for x in insights['business_needs']]))
+            st.subheader("📌 Business Needs")
+            st.write("\n".join([f"- {x}" for x in insights['business_needs']]))
 
-        st.subheader("👥 Stakeholder Focus")
-        st.pyplot(visualize_stakeholders(insights['stakeholder_focus']))
+            st.subheader("👥 Stakeholder Focus")
+            st.pyplot(visualize_stakeholders(insights['stakeholder_focus']))
 
-        st.subheader("🎯 Goals")
-        st.write(insights['goals'])
+            st.subheader("🎯 Goals")
+            st.write(insights['goals'])
 
-        st.subheader("💬 Personal Reflection")
-        st.write(insights['personal_reflection'])
+            st.subheader("💬 Personal Reflection")
+            st.write(insights['personal_reflection'])
 
-        st.success("✅ Insight report generated!")
+            st.success("✅ Insight report generated!")
+        except Exception as e:
+            st.error(f"Error generating insights: {str(e)}")
