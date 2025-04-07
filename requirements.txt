@@ -1,6 +1,6 @@
 streamlit==1.25.0
 transformers==4.38.1
-torch==2.0.1
+torch==2.1.0
 pydub==0.25.1
 yt-dlp==2025.04.01
 matplotlib==3.8.0
