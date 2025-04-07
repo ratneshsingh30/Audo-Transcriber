@@ -1,7 +1,6 @@
 streamlit
 yt-dlp
 torch
-torchaudio
 transformers
 accelerate
 matplotlib
@@ -9,3 +8,4 @@ pandas
 python-docx
 beautifulsoup4
 requests
+pydub

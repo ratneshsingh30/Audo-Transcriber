@@ -6,12 +6,13 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 from transformers import WhisperProcessor, WhisperForConditionalGeneration, pipeline
-import torchaudio
 import torch
 import requests
 from bs4 import BeautifulSoup
 from docx import Document
 from collections import Counter
+from pydub import AudioSegment
+import numpy as np
 
 # --- Helper Functions ---
 def extract_profile_from_resume(file):
@@ -71,11 +72,10 @@ linkedin_url = st.text_input("Or paste your LinkedIn URL")
 if st.button("Generate Report"):
     with st.spinner("Downloading audio and transcribing..."):
         os.system(f"yt-dlp -x --audio-format mp3 -o podcast.mp3 {podcast_url}")
-        waveform, sr = torchaudio.load("podcast.mp3")
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
-        if sr != 16000:
-            waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
+        audio = AudioSegment.from_mp3("podcast.mp3")
+        audio = audio.set_channels(1).set_frame_rate(16000)
+        samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
+        waveform = torch.tensor(samples).unsqueeze(0)
 
         processor = WhisperProcessor.from_pretrained("openai/whisper-small")
         model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
