@@ -1,5 +1,5 @@
 
-# Streamlit Web App for Agentic AI Consulting Demo (WAV-based version)
+# Streamlit Web App for Agentic AI Consulting Demo (MP3 version with fallback)
 import streamlit as st
 import os
 from datetime import datetime
@@ -71,8 +71,8 @@ linkedin_url = st.text_input("Or paste your LinkedIn URL")
 
 if st.button("Generate Report"):
     with st.spinner("Downloading audio and transcribing..."):
-        os.system(f"yt-dlp -x --audio-format wav -o podcast.wav {podcast_url}")
-        audio = AudioSegment.from_wav("podcast.wav")
+        os.system(f"yt-dlp -x --audio-format mp3 -o podcast.mp3 {podcast_url}")
+        audio = AudioSegment.from_mp3("podcast.mp3")
         audio = audio.set_channels(1).set_frame_rate(16000)
         samples = np.array(audio.get_array_of_samples()).astype(np.float32) / 32768.0
         waveform = torch.tensor(samples).unsqueeze(0)
